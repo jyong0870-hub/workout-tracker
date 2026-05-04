@@ -1,0 +1,1126 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>💪 Workout Tracker</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      background: #0f0f0f;
+      color: #f0f0f0;
+      min-height: 100vh;
+      max-width: 480px;
+      margin: 0 auto;
+      overflow-x: hidden;
+    }
+    :root {
+      --primary: #6c63ff;
+      --primary-light: #8b83ff;
+      --success: #22c55e;
+      --partial: #f59e0b;
+      --fail: #ef4444;
+      --surface: #1a1a1a;
+      --surface2: #242424;
+      --surface3: #2e2e2e;
+      --border: #333;
+      --text-muted: #888;
+      --radius: 14px;
+    }
+    input[type=number], input[type=text], textarea {
+      -webkit-appearance: none;
+      appearance: none;
+    }
+    input:focus, textarea:focus { outline: none; }
+    button { cursor: pointer; border: none; font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    /* Animations */
+    @keyframes slideUp {
+      from { transform: translateY(20px); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes pulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.05); }
+    }
+    @keyframes shimmer {
+      0% { background-position: -200% 0; }
+      100% { background-position: 200% 0; }
+    }
+    .slide-up { animation: slideUp 0.3s ease; }
+    .fade-in { animation: fadeIn 0.2s ease; }
+  </style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useEffect, useRef, useCallback, useReducer } = React;
+
+// ─── DEFAULT DATA ────────────────────────────────────────────────────────────
+const SPLITS = {
+  "Push (Chest + Triceps)": {
+    emoji: "💪",
+    exercises: [
+      { name: "Bench Press", rep_range: [6,10], increment: 2.5, defaultWeight: 60, sets: 4, muscleGroup: "Chest" },
+      { name: "Incline DB Press", rep_range: [8,12], increment: 2.5, defaultWeight: 20, sets: 3, muscleGroup: "Chest" },
+      { name: "Cable Fly", rep_range: [12,15], increment: 2.5, defaultWeight: 12, sets: 3, muscleGroup: "Chest" },
+      { name: "Tricep Pushdown", rep_range: [10,15], increment: 2.5, defaultWeight: 20, sets: 3, muscleGroup: "Triceps" },
+      { name: "Skull Crusher", rep_range: [8,12], increment: 2.5, defaultWeight: 20, sets: 3, muscleGroup: "Triceps" },
+    ]
+  },
+  "Pull (Back + Biceps)": {
+    emoji: "🔙",
+    exercises: [
+      { name: "Lat Pulldown", rep_range: [6,10], increment: 5, defaultWeight: 50, sets: 4, muscleGroup: "Back" },
+      { name: "Barbell Row", rep_range: [5,8], increment: 5, defaultWeight: 60, sets: 4, muscleGroup: "Back" },
+      { name: "Cable Row", rep_range: [10,12], increment: 5, defaultWeight: 50, sets: 3, muscleGroup: "Back" },
+      { name: "Barbell Curl", rep_range: [8,12], increment: 2.5, defaultWeight: 25, sets: 3, muscleGroup: "Biceps" },
+      { name: "Hammer Curl", rep_range: [10,15], increment: 2.5, defaultWeight: 12, sets: 3, muscleGroup: "Biceps" },
+    ]
+  },
+  "Legs + Shoulders": {
+    emoji: "🦵",
+    exercises: [
+      { name: "Squat", rep_range: [5,8], increment: 5, defaultWeight: 80, sets: 4, muscleGroup: "Legs" },
+      { name: "Romanian Deadlift", rep_range: [8,12], increment: 5, defaultWeight: 60, sets: 3, muscleGroup: "Legs" },
+      { name: "Leg Press", rep_range: [10,15], increment: 10, defaultWeight: 100, sets: 3, muscleGroup: "Legs" },
+      { name: "OHP", rep_range: [6,10], increment: 2.5, defaultWeight: 40, sets: 4, muscleGroup: "Shoulders" },
+      { name: "Lateral Raise", rep_range: [15,20], increment: 0, defaultWeight: 8, sets: 3, muscleGroup: "Shoulders" },
+    ]
+  }
+};
+
+const SPLIT_NAMES = Object.keys(SPLITS);
+
+// ─── UTILITY ─────────────────────────────────────────────────────────────────
+const today = () => new Date().toISOString().split('T')[0];
+const formatDate = (d) => {
+  const dt = new Date(d + 'T00:00:00');
+  return dt.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric', weekday: 'short' });
+};
+
+const calcResult = (sets, rep_range) => {
+  const [min] = rep_range;
+  if (!sets.length) return null;
+  const filled = sets.filter(s => s.reps > 0);
+  if (!filled.length) return null;
+  const last = filled[filled.length - 1];
+  const earlyFail = filled.slice(0, -1).some(s => s.reps < min);
+  const allPass = filled.every(s => s.reps >= min);
+  if (allPass) return 'success';
+  if (!earlyFail && last.reps < min) return 'partial';
+  return 'fail';
+};
+
+const calcNextWeight = (result, currentWeight, increment) => {
+  if (result === 'success') return currentWeight + increment;
+  if (result === 'fail') return Math.max(0, currentWeight - increment);
+  return currentWeight;
+};
+
+const calcVolume = (sets) =>
+  sets.reduce((acc, s) => acc + (s.weight || 0) * (s.reps || 0), 0);
+
+const resultLabel = {
+  success: { text: 'Increase weight 🔥', color: '#22c55e' },
+  partial: { text: 'Maintain weight 👍', color: '#f59e0b' },
+  fail: { text: 'Reduce weight ⚠️', color: '#ef4444' },
+};
+
+function getStreak(history) {
+  const dates = [...new Set(history.map(h => h.date))].sort().reverse();
+  if (!dates.length) return 0;
+  let streak = 0;
+  const todayStr = today();
+  let check = new Date(todayStr);
+  for (const d of dates) {
+    const dStr = check.toISOString().split('T')[0];
+    if (d === dStr || (streak === 0 && d === todayStr)) {
+      streak++;
+      check.setDate(check.getDate() - 1);
+    } else break;
+  }
+  return streak;
+}
+
+// ─── LOCAL STORAGE ────────────────────────────────────────────────────────────
+const LS = {
+  get: (k, def) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch { return def; } },
+  set: (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} }
+};
+
+// ─── CUSTOM EXERCISE HELPERS ──────────────────────────────────────────────────
+const getCustomExercises = (splitName) => (LS.get('wt_custom_splits', {})[splitName] || []);
+
+const saveCustomExercise = (splitName, cfg) => {
+  const all = LS.get('wt_custom_splits', {});
+  const existing = all[splitName] || [];
+  LS.set('wt_custom_splits', { ...all, [splitName]: [...existing.filter(e => e.name !== cfg.name), cfg] });
+};
+
+const deleteCustomExercise = (splitName, name) => {
+  const all = LS.get('wt_custom_splits', {});
+  const existing = all[splitName] || [];
+  LS.set('wt_custom_splits', { ...all, [splitName]: existing.filter(e => e.name !== name) });
+};
+
+const getExerciseConfig = (splitName, exName) =>
+  SPLITS[splitName]?.exercises.find(e => e.name === exName) ||
+  getCustomExercises(splitName).find(e => e.name === exName) ||
+  null;
+
+// ─── REST TIMER ───────────────────────────────────────────────────────────────
+function RestTimer({ onClose }) {
+  const [secs, setSecs] = useState(90);
+  const [running, setRunning] = useState(true);
+  const [initial, setInitial] = useState(90);
+  const ref = useRef(null);
+
+  useEffect(() => {
+    if (running && secs > 0) {
+      ref.current = setTimeout(() => setSecs(s => s - 1), 1000);
+    } else if (secs === 0) {
+      setRunning(false);
+      if ('vibrate' in navigator) navigator.vibrate([300, 100, 300]);
+    }
+    return () => clearTimeout(ref.current);
+  }, [running, secs]);
+
+  const pct = (secs / initial) * 100;
+  const r = 54;
+  const circ = 2 * Math.PI * r;
+  const dash = (pct / 100) * circ;
+
+  const presets = [60, 90, 120, 180];
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.85)', zIndex: 100,
+      display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+      animation: 'fadeIn 0.2s ease'
+    }}>
+      <div style={{ textAlign: 'center' }}>
+        <div style={{ color: '#888', marginBottom: 16, fontSize: 14 }}>휴식 타이머</div>
+        <svg width="140" height="140" viewBox="0 0 140 140">
+          <circle cx="70" cy="70" r={r} fill="none" stroke="#2a2a2a" strokeWidth="8"/>
+          <circle cx="70" cy="70" r={r} fill="none"
+            stroke={secs === 0 ? '#22c55e' : '#6c63ff'} strokeWidth="8"
+            strokeDasharray={`${dash} ${circ}`}
+            strokeLinecap="round"
+            transform="rotate(-90 70 70)"
+            style={{ transition: 'stroke-dasharray 1s linear' }}
+          />
+          <text x="70" y="70" textAnchor="middle" dominantBaseline="middle"
+            fill="#f0f0f0" fontSize="32" fontWeight="700">
+            {secs}
+          </text>
+          <text x="70" y="90" textAnchor="middle" fill="#888" fontSize="11">seconds</text>
+        </svg>
+        <div style={{ display: 'flex', gap: 8, justifyContent: 'center', margin: '16px 0' }}>
+          {presets.map(p => (
+            <button key={p} onClick={() => { setSecs(p); setInitial(p); setRunning(true); }}
+              style={{
+                background: initial === p ? '#6c63ff' : '#2a2a2a',
+                color: '#f0f0f0', border: 'none', borderRadius: 8,
+                padding: '6px 12px', fontSize: 13
+              }}>
+              {p}s
+            </button>
+          ))}
+        </div>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center' }}>
+          <button onClick={() => setRunning(r => !r)} style={{
+            background: '#2a2a2a', color: '#f0f0f0', borderRadius: 10,
+            padding: '10px 24px', fontSize: 15
+          }}>
+            {running ? '⏸ 일시정지' : '▶ 재개'}
+          </button>
+          <button onClick={onClose} style={{
+            background: '#6c63ff', color: '#fff', borderRadius: 10,
+            padding: '10px 24px', fontSize: 15
+          }}>
+            닫기
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── ADD EXERCISE MODAL ───────────────────────────────────────────────────────
+function AddExerciseModal({ splitName, onAdd, onClose }) {
+  const [name, setName] = useState('');
+  const [muscleGroup, setMuscleGroup] = useState('');
+  const [repMin, setRepMin] = useState(8);
+  const [repMax, setRepMax] = useState(12);
+  const [increment, setIncrement] = useState(2.5);
+  const [defaultWeight, setDefaultWeight] = useState(20);
+  const [numSets, setNumSets] = useState(3);
+  const [error, setError] = useState('');
+
+  const allNames = [
+    ...SPLITS[splitName].exercises.map(e => e.name),
+    ...getCustomExercises(splitName).map(e => e.name)
+  ];
+
+  const handleSubmit = () => {
+    const trimmed = name.trim();
+    if (!trimmed) { setError('운동 이름을 입력해주세요.'); return; }
+    if (allNames.includes(trimmed)) { setError('이미 존재하는 운동 이름입니다.'); return; }
+    const cfg = {
+      name: trimmed,
+      muscleGroup: muscleGroup.trim() || 'Custom',
+      rep_range: [Number(repMin), Number(repMax)],
+      increment: Number(increment),
+      defaultWeight: Number(defaultWeight),
+      sets: Number(numSets),
+      custom: true,
+    };
+    saveCustomExercise(splitName, cfg);
+    onAdd(cfg);
+    onClose();
+  };
+
+  const Field = ({ label, children }) => (
+    <div style={{ marginBottom: 14 }}>
+      <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>{label}</div>
+      {children}
+    </div>
+  );
+
+  const numInput = (val, set, opts = {}) => (
+    <input type="number" inputMode="decimal" value={val}
+      onChange={e => set(e.target.value)}
+      style={{
+        width: '100%', height: 48, background: '#222', border: '1px solid #333',
+        borderRadius: 10, color: '#f0f0f0', fontSize: 18, fontWeight: 600,
+        textAlign: 'center'
+      }}
+      {...opts}
+    />
+  );
+
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 200,
+      display: 'flex', flexDirection: 'column', justifyContent: 'flex-end',
+      animation: 'fadeIn 0.2s ease'
+    }} onClick={e => e.target === e.currentTarget && onClose()}>
+      <div style={{
+        background: '#1a1a1a', borderRadius: '20px 20px 0 0', padding: '20px 20px 40px',
+        maxHeight: '90vh', overflowY: 'auto',
+        animation: 'slideUp 0.25s ease'
+      }}>
+        {/* Handle */}
+        <div style={{ width: 40, height: 4, background: '#333', borderRadius: 2, margin: '0 auto 20px' }}/>
+
+        <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 20 }}>운동 추가</div>
+
+        <Field label="운동 이름 *">
+          <input type="text" value={name} onChange={e => { setName(e.target.value); setError(''); }}
+            placeholder="예: Dumbbell Fly"
+            style={{
+              width: '100%', height: 48, background: '#222', border: `1px solid ${error ? '#ef4444' : '#333'}`,
+              borderRadius: 10, color: '#f0f0f0', fontSize: 15, padding: '0 14px'
+            }}
+          />
+          {error && <div style={{ fontSize: 12, color: '#ef4444', marginTop: 4 }}>{error}</div>}
+        </Field>
+
+        <Field label="근육 그룹">
+          <input type="text" value={muscleGroup} onChange={e => setMuscleGroup(e.target.value)}
+            placeholder="예: Chest, Back, Legs…"
+            style={{
+              width: '100%', height: 48, background: '#222', border: '1px solid #333',
+              borderRadius: 10, color: '#f0f0f0', fontSize: 15, padding: '0 14px'
+            }}
+          />
+        </Field>
+
+        <Field label="목표 횟수 범위 (reps)">
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 24px 1fr', gap: 6, alignItems: 'center' }}>
+            {numInput(repMin, setRepMin, { min: 1 })}
+            <div style={{ textAlign: 'center', color: '#666' }}>~</div>
+            {numInput(repMax, setRepMax, { min: 1 })}
+          </div>
+        </Field>
+
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <Field label="시작 무게 (kg)">
+            {numInput(defaultWeight, setDefaultWeight, { min: 0 })}
+          </Field>
+          <Field label="증가 단위 (kg)">
+            {numInput(increment, setIncrement, { min: 0 })}
+          </Field>
+        </div>
+
+        <Field label="세트 수">
+          <div style={{ display: 'flex', gap: 8 }}>
+            {[2, 3, 4, 5].map(n => (
+              <button key={n} onClick={() => setNumSets(n)} style={{
+                flex: 1, height: 48, borderRadius: 10, fontSize: 16, fontWeight: 700,
+                background: numSets === n ? '#6c63ff' : '#2a2a2a',
+                color: numSets === n ? '#fff' : '#888',
+                border: `1px solid ${numSets === n ? '#6c63ff' : '#333'}`
+              }}>{n}</button>
+            ))}
+          </div>
+        </Field>
+
+        <button onClick={handleSubmit} style={{
+          width: '100%', height: 52, borderRadius: 14, fontSize: 16, fontWeight: 700,
+          background: '#6c63ff', color: '#fff', marginTop: 4
+        }}>
+          추가하기
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCREEN: SPLIT SELECT ─────────────────────────────────────────────────────
+function SplitSelectScreen({ onSelect }) {
+  const history = LS.get('wt_history', []);
+  const streak = getStreak(history);
+  const lastWorkout = history[history.length - 1];
+
+  return (
+    <div style={{ padding: 20, paddingBottom: 40 }} className="slide-up">
+      <div style={{ marginBottom: 24 }}>
+        <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>
+          {new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' })}
+        </div>
+        <h1 style={{ fontSize: 28, fontWeight: 800 }}>오늘 운동 💪</h1>
+        {streak > 0 && (
+          <div style={{
+            display: 'inline-flex', alignItems: 'center', gap: 6,
+            marginTop: 8, background: '#2a1f00', color: '#f59e0b',
+            borderRadius: 20, padding: '4px 12px', fontSize: 13
+          }}>
+            🔥 {streak}일 연속 운동 중
+          </div>
+        )}
+      </div>
+
+      {lastWorkout && (
+        <div style={{
+          background: '#1e1e2e', borderRadius: var_radius, padding: 16,
+          border: '1px solid #2d2d4e', marginBottom: 20
+        }}>
+          <div style={{ fontSize: 11, color: '#888', marginBottom: 4 }}>마지막 운동</div>
+          <div style={{ fontWeight: 600 }}>{lastWorkout.workoutType}</div>
+          <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+            {formatDate(lastWorkout.date)} · {lastWorkout.exercises.filter(e => e.completed).length}/{lastWorkout.exercises.length} 완료
+          </div>
+        </div>
+      )}
+
+      <div style={{ marginBottom: 12, fontSize: 14, color: '#888' }}>운동 분할 선택</div>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {SPLIT_NAMES.map(name => {
+          const split = SPLITS[name];
+          const groups = [...new Set(split.exercises.map(e => e.muscleGroup))];
+          return (
+            <button key={name} onClick={() => onSelect(name)} style={{
+              background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 16,
+              padding: '16px 18px', textAlign: 'left', color: '#f0f0f0',
+              transition: 'all 0.15s'
+            }}
+              onTouchStart={e => e.currentTarget.style.transform = 'scale(0.98)'}
+              onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <div style={{ fontSize: 18, fontWeight: 700, marginBottom: 4 }}>
+                    {split.emoji} {name}
+                  </div>
+                  <div style={{ fontSize: 12, color: '#888' }}>
+                    {groups.join(' · ')} · {split.exercises.length}개 운동
+                  </div>
+                </div>
+                <div style={{ color: '#444', fontSize: 20 }}>›</div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── SCREEN: DASHBOARD ────────────────────────────────────────────────────────
+function DashboardScreen({ session, onExerciseClick, onFinish, onBack, onAddExercise, onDeleteExercise }) {
+  const [showAddModal, setShowAddModal] = useState(false);
+  const completed = session.exercises.filter(e => e.completed).length;
+  const total = session.exercises.length;
+  const pct = total > 0 ? Math.round((completed / total) * 100) : 0;
+  const split = SPLITS[session.workoutType];
+  const totalVolume = session.exercises.reduce((acc, ex) => acc + calcVolume(ex.sets || []), 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh' }} className="slide-up">
+      {showAddModal && (
+        <AddExerciseModal
+          splitName={session.workoutType}
+          onAdd={onAddExercise}
+          onClose={() => setShowAddModal(false)}
+        />
+      )}
+
+      {/* Header */}
+      <div style={{ background: '#1a1a1a', padding: '16px 20px', borderBottom: '1px solid #222' }}>
+        <button onClick={onBack} style={{
+          background: 'none', color: '#888', fontSize: 14, marginBottom: 8, padding: 0
+        }}>‹ 분할 선택</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: 12, color: '#888' }}>{formatDate(session.date)}</div>
+            <div style={{ fontSize: 20, fontWeight: 700, marginTop: 2 }}>
+              {split?.emoji} {session.workoutType}
+            </div>
+          </div>
+          <div style={{ textAlign: 'right' }}>
+            <div style={{ fontSize: 22, fontWeight: 800, color: pct === 100 ? '#22c55e' : '#6c63ff' }}>
+              {completed}/{total}
+            </div>
+            <div style={{ fontSize: 11, color: '#888' }}>완료</div>
+          </div>
+        </div>
+        <div style={{ marginTop: 12, height: 6, background: '#2a2a2a', borderRadius: 3, overflow: 'hidden' }}>
+          <div style={{
+            height: '100%', width: `${pct}%`, borderRadius: 3,
+            background: pct === 100 ? '#22c55e' : '#6c63ff',
+            transition: 'width 0.4s ease'
+          }}/>
+        </div>
+        {totalVolume > 0 && (
+          <div style={{ marginTop: 8, fontSize: 12, color: '#888' }}>
+            총 볼륨: <span style={{ color: '#f0f0f0' }}>{totalVolume.toLocaleString()} kg</span>
+          </div>
+        )}
+      </div>
+
+      {/* Exercise list */}
+      <div style={{ flex: 1, padding: '16px 16px', display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {session.exercises.map((ex, i) => {
+          const result = ex.result;
+          const rl = result ? resultLabel[result] : null;
+          const vol = calcVolume(ex.sets || []);
+          const setsLogged = (ex.sets || []).filter(s => s.reps > 0).length;
+          const isCustom = !!ex.custom;
+
+          return (
+            <div key={ex.name} style={{ position: 'relative' }}>
+              <button onClick={() => onExerciseClick(i)} style={{
+                background: ex.completed ? '#0f1f0f' : '#1a1a1a',
+                border: `1px solid ${ex.completed ? '#1a4a1a' : isCustom ? '#2d2d1a' : '#2a2a2a'}`,
+                borderRadius: 14, padding: '14px 16px', textAlign: 'left',
+                color: '#f0f0f0', width: '100%', transition: 'all 0.15s',
+                paddingRight: isCustom ? 44 : 16
+              }}
+                onTouchStart={e => e.currentTarget.style.transform = 'scale(0.98)'}
+                onTouchEnd={e => e.currentTarget.style.transform = 'scale(1)'}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <div style={{
+                        width: 22, height: 22, borderRadius: '50%',
+                        background: ex.completed ? '#22c55e' : '#2a2a2a',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 12, flexShrink: 0
+                      }}>
+                        {ex.completed ? '✓' : ''}
+                      </div>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                          <span style={{ fontSize: 15, fontWeight: 600 }}>{ex.name}</span>
+                          {isCustom && (
+                            <span style={{
+                              fontSize: 9, background: '#2a2a00', color: '#b8a000',
+                              border: '1px solid #3a3a00', borderRadius: 4, padding: '1px 5px'
+                            }}>커스텀</span>
+                          )}
+                        </div>
+                        <div style={{ fontSize: 11, color: '#888', marginTop: 1 }}>
+                          {ex.muscleGroup} · {setsLogged}/{ex.targetSets} sets
+                          {vol > 0 && ` · ${vol.toLocaleString()}kg vol`}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right', marginLeft: 8 }}>
+                    {rl && <div style={{ fontSize: 11, color: rl.color, fontWeight: 600 }}>{rl.text}</div>}
+                    <div style={{ color: '#444', fontSize: 18 }}>›</div>
+                  </div>
+                </div>
+              </button>
+
+              {/* Delete button for custom exercises */}
+              {isCustom && (
+                <button
+                  onClick={e => { e.stopPropagation(); onDeleteExercise(ex.name); }}
+                  style={{
+                    position: 'absolute', top: 10, right: 10,
+                    width: 28, height: 28, borderRadius: '50%',
+                    background: '#2a1a1a', border: '1px solid #3a2020',
+                    color: '#ef4444', fontSize: 14, display: 'flex',
+                    alignItems: 'center', justifyContent: 'center', zIndex: 1
+                  }}
+                >×</button>
+              )}
+            </div>
+          );
+        })}
+
+        {/* Add exercise button */}
+        <button onClick={() => setShowAddModal(true)} style={{
+          background: 'transparent', border: '1px dashed #333', borderRadius: 14,
+          padding: '14px 16px', color: '#666', fontSize: 14,
+          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8,
+          width: '100%', transition: 'all 0.15s'
+        }}
+          onTouchStart={e => e.currentTarget.style.borderColor = '#6c63ff'}
+          onTouchEnd={e => e.currentTarget.style.borderColor = '#333'}
+        >
+          <span style={{ fontSize: 20, lineHeight: 1 }}>＋</span>
+          <span>운동 추가</span>
+        </button>
+      </div>
+
+      {/* Finish button */}
+      {completed > 0 && (
+        <div style={{ padding: '0 16px 32px' }}>
+          <button onClick={onFinish} style={{
+            width: '100%', padding: 16, borderRadius: 14, fontSize: 16, fontWeight: 700,
+            background: completed === total ? '#22c55e' : '#6c63ff',
+            color: '#fff', transition: 'all 0.2s'
+          }}>
+            {completed === total ? '✅ 운동 완료!' : `운동 저장 (${completed}/${total} 완료)`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── SCREEN: EXERCISE DETAIL ──────────────────────────────────────────────────
+function ExerciseDetailScreen({ exercise, exerciseConfig, lastWorkoutEx, onSave, onBack }) {
+  const [sets, setSets] = useState(() => {
+    const existing = exercise.sets || [];
+    const target = exerciseConfig.sets;
+    const filled = [...existing];
+    while (filled.length < target) {
+      const prev = filled[filled.length - 1];
+      filled.push({ weight: prev ? prev.weight : exerciseConfig.defaultWeight, reps: 0 });
+    }
+    return filled.slice(0, target);
+  });
+  const [note, setNote] = useState(exercise.note || '');
+  const [showTimer, setShowTimer] = useState(false);
+  const [activeSet, setActiveSet] = useState(null);
+
+  const result = calcResult(sets, exerciseConfig.rep_range);
+  const rl = result ? resultLabel[result] : null;
+  const nextW = result ? calcNextWeight(result, sets[0]?.weight || exerciseConfig.defaultWeight, exerciseConfig.increment) : null;
+  const [min, max] = exerciseConfig.rep_range;
+  const totalVol = calcVolume(sets);
+
+  const updateSet = (i, field, val) => {
+    setSets(prev => prev.map((s, idx) => idx === i ? { ...s, [field]: Number(val) || 0 } : s));
+  };
+
+  const handleSave = () => {
+    const completed = result !== null;
+    onSave({
+      ...exercise,
+      sets,
+      note,
+      completed,
+      result,
+      nextWeight: nextW
+    });
+  };
+
+  const fillPrevWeight = () => {
+    if (!lastWorkoutEx) return;
+    const pw = lastWorkoutEx.sets?.[0]?.weight;
+    if (!pw) return;
+    setSets(prev => prev.map(s => ({ ...s, weight: pw })));
+  };
+
+  return (
+    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }} className="slide-up">
+      {showTimer && <RestTimer onClose={() => setShowTimer(false)} />}
+
+      {/* Header */}
+      <div style={{ background: '#1a1a1a', padding: '16px 20px', borderBottom: '1px solid #222' }}>
+        <button onClick={onBack} style={{
+          background: 'none', color: '#888', fontSize: 14, marginBottom: 8, padding: 0
+        }}>‹ 돌아가기</button>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+          <div>
+            <div style={{ fontSize: 10, color: '#888' }}>{exercise.muscleGroup}</div>
+            <div style={{ fontSize: 22, fontWeight: 800 }}>{exercise.name}</div>
+            <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+              목표: {min}~{max} reps / {exerciseConfig.sets} sets
+              {exerciseConfig.increment > 0 && ` · +${exerciseConfig.increment}kg 증가단위`}
+            </div>
+          </div>
+          <button onClick={() => setShowTimer(true)} style={{
+            background: '#2a2a2a', color: '#f0f0f0', borderRadius: 10,
+            padding: '8px 12px', fontSize: 12
+          }}>⏱ 휴식</button>
+        </div>
+
+        {/* Last workout comparison */}
+        {lastWorkoutEx && (
+          <div style={{
+            marginTop: 10, background: '#1e1e2e', borderRadius: 10, padding: '8px 12px',
+            border: '1px solid #2d2d4e', fontSize: 12
+          }}>
+            <span style={{ color: '#888' }}>이전 기록: </span>
+            {lastWorkoutEx.sets?.map((s, i) => (
+              <span key={i} style={{ color: '#a5a0ff', marginRight: 8 }}>
+                {s.weight}×{s.reps}
+              </span>
+            ))}
+            {lastWorkoutEx.result && (
+              <span style={{ color: resultLabel[lastWorkoutEx.result]?.color }}>
+                {lastWorkoutEx.result === 'success' ? '✅' : lastWorkoutEx.result === 'partial' ? '🆗' : '❌'}
+              </span>
+            )}
+            <button onClick={fillPrevWeight} style={{
+              marginLeft: 8, background: '#2d2d4e', color: '#a5a0ff',
+              border: 'none', borderRadius: 6, padding: '2px 8px', fontSize: 11
+            }}>
+              무게 그대로
+            </button>
+          </div>
+        )}
+      </div>
+
+      {/* Sets input */}
+      <div style={{ flex: 1, padding: '16px 16px' }}>
+        {/* Column headers */}
+        <div style={{ display: 'grid', gridTemplateColumns: '36px 1fr 1fr 40px', gap: 8, marginBottom: 8, padding: '0 4px' }}>
+          <div style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>SET</div>
+          <div style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>무게 (kg)</div>
+          <div style={{ fontSize: 11, color: '#666', textAlign: 'center' }}>횟수</div>
+          <div></div>
+        </div>
+
+        {sets.map((s, i) => {
+          const repsOk = s.reps >= min;
+          const hasReps = s.reps > 0;
+          return (
+            <div key={i} style={{
+              display: 'grid', gridTemplateColumns: '36px 1fr 1fr 40px',
+              gap: 8, marginBottom: 10, alignItems: 'center'
+            }}>
+              <div style={{
+                width: 32, height: 32, borderRadius: '50%',
+                background: hasReps ? (repsOk ? '#0f2a0f' : '#2a0f0f') : '#2a2a2a',
+                border: `2px solid ${hasReps ? (repsOk ? '#22c55e' : '#ef4444') : '#333'}`,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 13, fontWeight: 700,
+                color: hasReps ? (repsOk ? '#22c55e' : '#ef4444') : '#666'
+              }}>{i + 1}</div>
+
+              <div style={{ position: 'relative' }}>
+                <input type="number" inputMode="decimal" value={s.weight || ''} placeholder="0"
+                  onChange={e => updateSet(i, 'weight', e.target.value)}
+                  style={{
+                    width: '100%', height: 52, background: '#222', border: '1px solid #333',
+                    borderRadius: 12, color: '#f0f0f0', fontSize: 22, fontWeight: 700,
+                    textAlign: 'center'
+                  }}
+                />
+                <div style={{
+                  position: 'absolute', top: '50%', right: 12,
+                  transform: 'translateY(-50%)', fontSize: 10, color: '#555'
+                }}>kg</div>
+              </div>
+
+              <div style={{ position: 'relative' }}>
+                <input type="number" inputMode="numeric" value={s.reps || ''} placeholder="0"
+                  onChange={e => {
+                    updateSet(i, 'reps', e.target.value);
+                    if (e.target.value > 0) setActiveSet(i);
+                  }}
+                  style={{
+                    width: '100%', height: 52, background: '#222',
+                    border: `1px solid ${hasReps ? (repsOk ? '#22c55e44' : '#ef444444') : '#333'}`,
+                    borderRadius: 12, color: '#f0f0f0', fontSize: 22, fontWeight: 700,
+                    textAlign: 'center'
+                  }}
+                />
+                <div style={{
+                  position: 'absolute', top: '50%', right: 12,
+                  transform: 'translateY(-50%)', fontSize: 10, color: '#555'
+                }}>reps</div>
+              </div>
+
+              <button onClick={() => setShowTimer(true)} style={{
+                height: 52, width: 40, background: '#1a1a1a', border: '1px solid #2a2a2a',
+                borderRadius: 12, color: '#888', fontSize: 16
+              }}>⏱</button>
+            </div>
+          );
+        })}
+
+        {/* Volume */}
+        {totalVol > 0 && (
+          <div style={{
+            background: '#1a1a2e', borderRadius: 10, padding: '10px 14px', marginTop: 4,
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center'
+          }}>
+            <span style={{ fontSize: 13, color: '#888' }}>이번 볼륨</span>
+            <span style={{ fontSize: 16, fontWeight: 700, color: '#a5a0ff' }}>
+              {totalVol.toLocaleString()} kg
+            </span>
+          </div>
+        )}
+
+        {/* Result */}
+        {rl && (
+          <div style={{
+            marginTop: 12, background: '#1a1a1a', borderRadius: 12, padding: '12px 16px',
+            border: `1px solid ${rl.color}44`, display: 'flex', justifyContent: 'space-between',
+            alignItems: 'center'
+          }}>
+            <div>
+              <div style={{ fontSize: 15, fontWeight: 700, color: rl.color }}>{rl.text}</div>
+              {nextW !== null && exerciseConfig.increment > 0 && (
+                <div style={{ fontSize: 12, color: '#888', marginTop: 2 }}>
+                  다음 무게: <span style={{ color: '#f0f0f0', fontWeight: 600 }}>{nextW} kg</span>
+                </div>
+              )}
+            </div>
+            {/* PR check */}
+            {result === 'success' && (() => {
+              const history = LS.get('wt_history', []);
+              const allSets = history.flatMap(h => h.exercises.filter(e => e.name === exercise.name).flatMap(e => e.sets || []));
+              const maxPR = allSets.reduce((m, s) => Math.max(m, s.weight || 0), 0);
+              const curMax = Math.max(...sets.map(s => s.weight || 0));
+              return curMax > maxPR ? (
+                <div style={{ fontSize: 20 }} title="신기록!">🏆</div>
+              ) : null;
+            })()}
+          </div>
+        )}
+
+        {/* Note */}
+        <div style={{ marginTop: 14 }}>
+          <div style={{ fontSize: 12, color: '#888', marginBottom: 6 }}>메모 (선택, 30자)</div>
+          <input type="text" value={note} maxLength={30}
+            onChange={e => setNote(e.target.value)}
+            placeholder="특이사항, 컨디션 등"
+            style={{
+              width: '100%', background: '#1a1a1a', border: '1px solid #2a2a2a',
+              borderRadius: 10, color: '#f0f0f0', fontSize: 14,
+              padding: '10px 14px'
+            }}
+          />
+        </div>
+      </div>
+
+      {/* Save button */}
+      <div style={{ padding: '0 16px 32px' }}>
+        <button onClick={handleSave} style={{
+          width: '100%', padding: 16, borderRadius: 14, fontSize: 16, fontWeight: 700,
+          background: result ? rl.color : '#6c63ff', color: '#fff'
+        }}>
+          {result ? '저장하기 ' + (result === 'success' ? '🔥' : result === 'partial' ? '👍' : '⚠️') : '저장하기'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ─── SCREEN: HISTORY ──────────────────────────────────────────────────────────
+function HistoryScreen({ onBack }) {
+  const history = LS.get('wt_history', []);
+  const sorted = [...history].sort((a, b) => b.date.localeCompare(a.date));
+  const [expanded, setExpanded] = useState(null);
+
+  if (sorted.length === 0) {
+    return (
+      <div style={{ padding: 24, textAlign: 'center' }} className="slide-up">
+        <button onClick={onBack} style={{ background: 'none', color: '#888', fontSize: 14, display: 'block', marginBottom: 16 }}>‹ 뒤로</button>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>📭</div>
+        <div style={{ color: '#888' }}>운동 기록이 없습니다</div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={{ minHeight: '100vh' }} className="slide-up">
+      <div style={{ background: '#1a1a1a', padding: '16px 20px', borderBottom: '1px solid #222', display: 'flex', alignItems: 'center', gap: 12 }}>
+        <button onClick={onBack} style={{ background: 'none', color: '#888', fontSize: 20, lineHeight: 1 }}>‹</button>
+        <div style={{ fontSize: 20, fontWeight: 700 }}>운동 기록</div>
+      </div>
+
+      <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10 }}>
+        {sorted.map((session, i) => {
+          const totalVol = session.exercises.reduce((acc, ex) => acc + calcVolume(ex.sets || []), 0);
+          const isExpanded = expanded === i;
+          return (
+            <div key={i} style={{
+              background: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: 14
+            }}>
+              <button onClick={() => setExpanded(isExpanded ? null : i)} style={{
+                width: '100%', padding: '14px 16px', textAlign: 'left', background: 'none', color: '#f0f0f0'
+              }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <div style={{ fontSize: 13, color: '#888' }}>{formatDate(session.date)}</div>
+                    <div style={{ fontSize: 16, fontWeight: 600, marginTop: 2 }}>
+                      {SPLITS[session.workoutType]?.emoji} {session.workoutType}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={{ fontSize: 12, color: '#888' }}>
+                      {session.exercises.filter(e => e.completed).length}/{session.exercises.length} 완료
+                    </div>
+                    {totalVol > 0 && <div style={{ fontSize: 12, color: '#6c63ff' }}>{totalVol.toLocaleString()}kg</div>}
+                    <div style={{ color: '#444', fontSize: 16 }}>{isExpanded ? '∧' : '∨'}</div>
+                  </div>
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div style={{ borderTop: '1px solid #222', padding: '10px 16px 14px' }}>
+                  {session.exercises.map((ex, j) => (
+                    <div key={j} style={{ marginBottom: 10 }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
+                        <span style={{ fontSize: 13, fontWeight: 600 }}>{ex.name}</span>
+                        {ex.result && (
+                          <span style={{ fontSize: 11, color: resultLabel[ex.result]?.color }}>
+                            {resultLabel[ex.result]?.text}
+                          </span>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                        {(ex.sets || []).filter(s => s.reps > 0).map((s, k) => (
+                          <span key={k} style={{
+                            background: '#2a2a2a', borderRadius: 6, padding: '3px 8px', fontSize: 12
+                          }}>
+                            {s.weight}kg × {s.reps}
+                          </span>
+                        ))}
+                      </div>
+                      {ex.note && (
+                        <div style={{ fontSize: 11, color: '#888', marginTop: 3 }}>📝 {ex.note}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── SCREEN: COMPLETE ─────────────────────────────────────────────────────────
+function CompleteScreen({ session, onDone }) {
+  const completed = session.exercises.filter(e => e.completed).length;
+  const total = session.exercises.length;
+  const totalVol = session.exercises.reduce((acc, ex) => acc + calcVolume(ex.sets || []), 0);
+  const successes = session.exercises.filter(e => e.result === 'success').length;
+
+  return (
+    <div style={{ padding: 24, textAlign: 'center', minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }} className="slide-up">
+      <div style={{ fontSize: 64, marginBottom: 16 }}>
+        {completed === total ? '🏆' : '💪'}
+      </div>
+      <h2 style={{ fontSize: 26, fontWeight: 800, marginBottom: 8 }}>
+        {completed === total ? '운동 완료!' : '기록 저장됨'}
+      </h2>
+      <div style={{ color: '#888', marginBottom: 24 }}>
+        {SPLITS[session.workoutType]?.emoji} {session.workoutType}
+      </div>
+
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, width: '100%', marginBottom: 24 }}>
+        {[
+          { label: '완료', value: `${completed}/${total}`, color: '#6c63ff' },
+          { label: '성공', value: successes, color: '#22c55e' },
+          { label: '볼륨', value: `${(totalVol/1000).toFixed(1)}t`, color: '#f59e0b' },
+        ].map(item => (
+          <div key={item.label} style={{
+            background: '#1a1a1a', borderRadius: 12, padding: '14px 8px', border: '1px solid #2a2a2a'
+          }}>
+            <div style={{ fontSize: 20, fontWeight: 800, color: item.color }}>{item.value}</div>
+            <div style={{ fontSize: 11, color: '#888', marginTop: 2 }}>{item.label}</div>
+          </div>
+        ))}
+      </div>
+
+      {/* Improvements */}
+      {session.exercises.filter(e => e.result === 'success' && e.nextWeight > (e.sets?.[0]?.weight || 0)).length > 0 && (
+        <div style={{ width: '100%', background: '#0f2a0f', border: '1px solid #1a4a1a', borderRadius: 12, padding: 14, marginBottom: 16, textAlign: 'left' }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: '#22c55e', marginBottom: 8 }}>다음 번 올릴 무게 🔥</div>
+          {session.exercises.filter(e => e.result === 'success').map(ex => (
+            <div key={ex.name} style={{ fontSize: 13, color: '#aaa', marginBottom: 4 }}>
+              {ex.name}: <span style={{ color: '#f0f0f0' }}>{ex.sets?.[0]?.weight}kg → {ex.nextWeight}kg</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <button onClick={onDone} style={{
+        width: '100%', padding: 16, borderRadius: 14, fontSize: 16, fontWeight: 700,
+        background: '#6c63ff', color: '#fff'
+      }}>
+        홈으로
+      </button>
+    </div>
+  );
+}
+
+// ─── CSS VAR WORKAROUND ───────────────────────────────────────────────────────
+const var_radius = '14px';
+
+// ─── MAIN APP ─────────────────────────────────────────────────────────────────
+function App() {
+  const [screen, setScreen] = useState('home');
+  const [session, setSession] = useState(null);
+  const [activeExIdx, setActiveExIdx] = useState(null);
+  const [lastWorkout, setLastWorkout] = useState(null);
+
+  const buildExercise = (cfg, prev) => {
+    const prevEx = prev?.exercises.find(e => e.name === cfg.name);
+    const startWeight = prevEx?.nextWeight ?? prevEx?.sets?.[0]?.weight ?? cfg.defaultWeight;
+    return {
+      name: cfg.name,
+      muscleGroup: cfg.muscleGroup,
+      targetSets: cfg.sets,
+      sets: Array(cfg.sets).fill(null).map(() => ({ weight: startWeight, reps: 0 })),
+      completed: false,
+      note: '',
+      result: null,
+      nextWeight: startWeight,
+      custom: cfg.custom || false,
+    };
+  };
+
+  const handleSelectSplit = (splitName) => {
+    const history = LS.get('wt_history', []);
+    const prev = [...history].reverse().find(h => h.workoutType === splitName);
+    setLastWorkout(prev || null);
+
+    const defaultExercises = SPLITS[splitName].exercises.map(cfg => buildExercise(cfg, prev));
+    const customExercises = getCustomExercises(splitName).map(cfg => buildExercise(cfg, prev));
+
+    setSession({ date: today(), workoutType: splitName, exercises: [...defaultExercises, ...customExercises] });
+    setScreen('dashboard');
+  };
+
+  const handleAddExercise = (cfg) => {
+    setSession(prev => ({
+      ...prev,
+      exercises: [...prev.exercises, buildExercise(cfg, lastWorkout)]
+    }));
+  };
+
+  const handleDeleteExercise = (name) => {
+    deleteCustomExercise(session.workoutType, name);
+    setSession(prev => ({
+      ...prev,
+      exercises: prev.exercises.filter(e => e.name !== name)
+    }));
+  };
+
+  const handleExerciseClick = (idx) => {
+    setActiveExIdx(idx);
+    setScreen('exercise');
+  };
+
+  const handleExerciseSave = (updatedEx) => {
+    setSession(prev => ({
+      ...prev,
+      exercises: prev.exercises.map((e, i) => i === activeExIdx ? updatedEx : e)
+    }));
+    setScreen('dashboard');
+  };
+
+  const handleFinish = () => {
+    const history = LS.get('wt_history', []);
+    const filtered = history.filter(h => !(h.date === session.date && h.workoutType === session.workoutType));
+    LS.set('wt_history', [...filtered, session]);
+    setScreen('complete');
+  };
+
+  const activeEx = session?.exercises[activeExIdx];
+  const activeExCfg = activeEx ? getExerciseConfig(session?.workoutType, activeEx.name) : null;
+  const lastEx = activeEx && lastWorkout ? lastWorkout.exercises.find(e => e.name === activeEx.name) : null;
+
+  return (
+    <div>
+      {screen === 'home' && (
+        <div>
+          <div style={{
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+            padding: '16px 20px 0', marginBottom: -8
+          }}>
+            <div/>
+            <button onClick={() => setScreen('history')} style={{
+              background: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: 10, padding: '6px 14px', fontSize: 13
+            }}>
+              📋 기록
+            </button>
+          </div>
+          <SplitSelectScreen onSelect={handleSelectSplit} />
+        </div>
+      )}
+      {screen === 'dashboard' && session && (
+        <DashboardScreen
+          session={session}
+          onExerciseClick={handleExerciseClick}
+          onFinish={handleFinish}
+          onBack={() => setScreen('home')}
+          onAddExercise={handleAddExercise}
+          onDeleteExercise={handleDeleteExercise}
+        />
+      )}
+      {screen === 'exercise' && activeEx && activeExCfg && (
+        <ExerciseDetailScreen
+          exercise={activeEx}
+          exerciseConfig={activeExCfg}
+          lastWorkoutEx={lastEx}
+          onSave={handleExerciseSave}
+          onBack={() => setScreen('dashboard')}
+        />
+      )}
+      {screen === 'complete' && session && (
+        <CompleteScreen
+          session={session}
+          onDone={() => { setSession(null); setScreen('home'); }}
+        />
+      )}
+      {screen === 'history' && (
+        <HistoryScreen onBack={() => setScreen('home')} />
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+</script>
+</body>
+</html>
