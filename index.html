@@ -523,83 +523,106 @@ function DashboardScreen({ session, onExerciseClick, onFinish, onBack, onAddExer
 // ─── SCREEN: CARDIO DETAIL ────────────────────────────────────────────────────
 function CardioDetailScreen({ exercise, lastWorkoutEx, onSave, onBack }) {
   const [duration, setDuration] = useState(exercise.duration || exercise.targetDuration || 30);
-  const [distance, setDistance] = useState(exercise.distance || exercise.targetDistance || 0);
+  const [distance, setDistance] = useState(exercise.distance ?? exercise.targetDistance ?? 0);
   const [intensity, setIntensity] = useState(exercise.intensity || 'medium');
   const [note, setNote] = useState(exercise.note || '');
+
   const intensities = [
-    { key:'low', label:'저강도', emoji:'🚶', color:'#22c55e' },
+    { key:'low',    label:'저강도', emoji:'🚶', color:'#22c55e' },
     { key:'medium', label:'중강도', emoji:'🏃', color:'#f59e0b' },
-    { key:'high', label:'고강도', emoji:'⚡', color:'#ef4444' },
+    { key:'high',   label:'고강도', emoji:'⚡', color:'#ef4444' },
   ];
-  const handleSave = () => onSave({ ...exercise, duration: Number(duration), distance: Number(distance), intensity, note, completed: Number(duration) > 0 });
+
+  const handleSave = () => onSave({
+    ...exercise,
+    duration: Number(duration), distance: Number(distance),
+    intensity, note, completed: Number(duration) > 0,
+  });
+
+  const StepRow = ({ label, value, onMinus, onPlus, onChange, step, inputMode='numeric' }) => (
+    <div style={{ marginBottom:14 }}>
+      <div style={{ fontSize:12, color:'#888', marginBottom:8 }}>{label}</div>
+      <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+        <button onClick={onMinus}
+          style={{ width:46, height:46, flexShrink:0, background:'#2a2a2a', borderRadius:12, fontSize:22, color:'#f0f0f0' }}>−</button>
+        <input type="number" inputMode={inputMode} value={value} onChange={e => onChange(e.target.value)}
+          style={{ flex:1, minWidth:0, height:56, background:'#222', border:'1px solid #333', borderRadius:12,
+            color:'#f0f0f0', fontSize:28, fontWeight:800, textAlign:'center' }}/>
+        <button onClick={onPlus}
+          style={{ width:46, height:46, flexShrink:0, background:'#2a2a2a', borderRadius:12, fontSize:22, color:'#f0f0f0' }}>+</button>
+      </div>
+    </div>
+  );
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }} className="slide-up">
-      <div style={{ background:'#1a1a1a', padding:'16px 20px', borderBottom:'1px solid #222' }}>
-        <button onClick={onBack} style={{ background:'none', color:'#888', fontSize:14, marginBottom:8, padding:0 }}>‹ 돌아가기</button>
-        <div style={{ fontSize:11, color:'#ef4444' }}>유산소</div>
-        <div style={{ fontSize:22, fontWeight:800 }}>{exercise.name}</div>
+    // height:100vh + overflow:hidden keeps save button always on screen
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden' }} className="slide-up">
+
+      {/* ── Header (고정) ── */}
+      <div style={{ flexShrink:0, background:'#1a1a1a', padding:'14px 20px', borderBottom:'1px solid #222' }}>
+        <button onClick={onBack} style={{ background:'none', color:'#888', fontSize:14, marginBottom:6, padding:0 }}>‹ 돌아가기</button>
+        <div style={{ fontSize:10, color:'#ef4444', letterSpacing:1 }}>유산소</div>
+        <div style={{ fontSize:21, fontWeight:800 }}>{exercise.name}</div>
         {lastWorkoutEx && (
-          <div style={{ marginTop:10, background:'#1e1e2e', borderRadius:10, padding:'8px 12px', border:'1px solid #2d2d4e', fontSize:12 }}>
+          <div style={{ marginTop:8, background:'#1e1e2e', borderRadius:10, padding:'7px 12px', border:'1px solid #2d2d4e', fontSize:12 }}>
             <span style={{ color:'#888' }}>이전 기록: </span>
             <span style={{ color:'#a5a0ff' }}>{lastWorkoutEx.duration}분</span>
             {lastWorkoutEx.distance > 0 && <span style={{ color:'#a5a0ff' }}> · {lastWorkoutEx.distance}km</span>}
-            <span style={{ color:'#888' }}> · {lastWorkoutEx.intensity === 'low' ? '저강도' : lastWorkoutEx.intensity === 'high' ? '고강도' : '중강도'}</span>
+            <span style={{ color:'#888' }}> · {lastWorkoutEx.intensity==='low'?'저강도':lastWorkoutEx.intensity==='high'?'고강도':'중강도'}</span>
           </div>
         )}
       </div>
 
-      <div style={{ flex:1, padding:'20px 16px' }}>
-        {/* Duration */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:13, color:'#888', marginBottom:10 }}>운동 시간 (분)</div>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button onClick={() => setDuration(d => Math.max(5, Number(d)-5))} style={{ width:52, height:52, background:'#2a2a2a', borderRadius:12, fontSize:24, color:'#f0f0f0' }}>−</button>
-            <input type="number" inputMode="numeric" value={duration} onChange={e => setDuration(e.target.value)}
-              style={{ flex:1, height:68, background:'#222', border:'1px solid #333', borderRadius:14, color:'#f0f0f0', fontSize:36, fontWeight:800, textAlign:'center' }}/>
-            <button onClick={() => setDuration(d => Number(d)+5)} style={{ width:52, height:52, background:'#2a2a2a', borderRadius:12, fontSize:24, color:'#f0f0f0' }}>+</button>
-          </div>
-        </div>
+      {/* ── 스크롤 가능한 본문 ── */}
+      <div style={{ flex:1, overflowY:'auto', padding:'16px 16px 8px' }}>
+        <StepRow
+          label="운동 시간 (분)"
+          value={duration}
+          onChange={setDuration}
+          onMinus={() => setDuration(d => Math.max(5, Number(d) - 5))}
+          onPlus={() => setDuration(d => Number(d) + 5)}
+        />
+        <StepRow
+          label="거리 (km, 선택)"
+          value={distance}
+          onChange={setDistance}
+          inputMode="decimal"
+          onMinus={() => setDistance(d => Math.max(0, Math.round((Number(d) - 0.5) * 10) / 10))}
+          onPlus={() => setDistance(d => Math.round((Number(d) + 0.5) * 10) / 10)}
+        />
 
-        {/* Distance */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:13, color:'#888', marginBottom:10 }}>거리 (km, 선택)</div>
-          <div style={{ display:'flex', alignItems:'center', gap:12 }}>
-            <button onClick={() => setDistance(d => Math.max(0, (Number(d)*10-1)/10))} style={{ width:52, height:52, background:'#2a2a2a', borderRadius:12, fontSize:24, color:'#f0f0f0' }}>−</button>
-            <input type="number" inputMode="decimal" value={distance} onChange={e => setDistance(e.target.value)}
-              style={{ flex:1, height:68, background:'#222', border:'1px solid #333', borderRadius:14, color:'#f0f0f0', fontSize:36, fontWeight:800, textAlign:'center' }}/>
-            <button onClick={() => setDistance(d => Math.round((Number(d)+0.5)*10)/10)} style={{ width:52, height:52, background:'#2a2a2a', borderRadius:12, fontSize:24, color:'#f0f0f0' }}>+</button>
-          </div>
-        </div>
-
-        {/* Intensity */}
-        <div style={{ marginBottom:20 }}>
-          <div style={{ fontSize:13, color:'#888', marginBottom:10 }}>강도</div>
-          <div style={{ display:'flex', gap:10 }}>
+        {/* 강도 */}
+        <div style={{ marginBottom:14 }}>
+          <div style={{ fontSize:12, color:'#888', marginBottom:8 }}>강도</div>
+          <div style={{ display:'flex', gap:8 }}>
             {intensities.map(it => (
               <button key={it.key} onClick={() => setIntensity(it.key)} style={{
-                flex:1, padding:'12px 0', borderRadius:12, fontSize:14, fontWeight:600,
-                background:intensity===it.key?it.color+'22':'#1a1a1a',
-                border:`1px solid ${intensity===it.key?it.color:'#2a2a2a'}`,
-                color:intensity===it.key?it.color:'#888'
+                flex:1, minWidth:0, padding:'10px 4px', borderRadius:12, fontWeight:600,
+                background: intensity===it.key ? it.color+'22' : '#1a1a1a',
+                border: `1px solid ${intensity===it.key ? it.color : '#2a2a2a'}`,
+                color: intensity===it.key ? it.color : '#888',
               }}>
-                <div style={{ fontSize:20 }}>{it.emoji}</div>
-                <div style={{ fontSize:12, marginTop:2 }}>{it.label}</div>
+                <div style={{ fontSize:18 }}>{it.emoji}</div>
+                <div style={{ fontSize:11, marginTop:2 }}>{it.label}</div>
               </button>
             ))}
           </div>
         </div>
 
-        {/* Note */}
+        {/* 메모 */}
         <div>
           <div style={{ fontSize:12, color:'#888', marginBottom:6 }}>메모 (선택)</div>
-          <input type="text" value={note} maxLength={30} onChange={e => setNote(e.target.value)} placeholder="컨디션, 코스 등"
-            style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, color:'#f0f0f0', fontSize:14, padding:'10px 14px' }}/>
+          <input type="text" value={note} maxLength={30} onChange={e => setNote(e.target.value)}
+            placeholder="컨디션, 코스 등"
+            style={{ width:'100%', background:'#1a1a1a', border:'1px solid #2a2a2a',
+              borderRadius:10, color:'#f0f0f0', fontSize:14, padding:'10px 14px' }}/>
         </div>
       </div>
 
-      <div style={{ padding:'0 16px 32px' }}>
-        <button onClick={handleSave} style={{ width:'100%', padding:16, borderRadius:14, fontSize:16, fontWeight:700, background:'#ef4444', color:'#fff' }}>
+      {/* ── 저장 버튼 (항상 화면 하단 고정) ── */}
+      <div style={{ flexShrink:0, padding:'12px 16px 32px', borderTop:'1px solid #1e1e1e', background:'#0f0f0f' }}>
+        <button onClick={handleSave}
+          style={{ width:'100%', padding:15, borderRadius:14, fontSize:16, fontWeight:700, background:'#ef4444', color:'#fff' }}>
           저장하기 🏃
         </button>
       </div>
@@ -635,10 +658,10 @@ function ExerciseDetailScreen({ exercise, exerciseConfig, lastWorkoutEx, onSave,
   };
 
   return (
-    <div style={{ minHeight:'100vh', display:'flex', flexDirection:'column' }} className="slide-up">
+    <div style={{ height:'100vh', display:'flex', flexDirection:'column', overflow:'hidden' }} className="slide-up">
       {showTimer && <RestTimer onClose={() => setShowTimer(false)} />}
 
-      <div style={{ background:'#1a1a1a', padding:'16px 20px', borderBottom:'1px solid #222' }}>
+      <div style={{ flexShrink:0, background:'#1a1a1a', padding:'14px 20px', borderBottom:'1px solid #222' }}>
         <button onClick={onBack} style={{ background:'none', color:'#888', fontSize:14, marginBottom:8, padding:0 }}>‹ 돌아가기</button>
         <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
           <div>
@@ -659,8 +682,8 @@ function ExerciseDetailScreen({ exercise, exerciseConfig, lastWorkoutEx, onSave,
         )}
       </div>
 
-      <div style={{ flex:1, padding:'16px' }}>
-        <div style={{ display:'grid', gridTemplateColumns:'36px 1fr 1fr 40px', gap:8, marginBottom:8, padding:'0 4px' }}>
+      <div style={{ flex:1, overflowY:'auto', padding:'14px 16px 8px' }}>
+        <div style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 36px', gap:6, marginBottom:8, padding:'0 2px' }}>
           <div style={{ fontSize:11, color:'#666', textAlign:'center' }}>SET</div>
           <div style={{ fontSize:11, color:'#666', textAlign:'center' }}>무게 (kg)</div>
           <div style={{ fontSize:11, color:'#666', textAlign:'center' }}>횟수</div>
@@ -668,20 +691,37 @@ function ExerciseDetailScreen({ exercise, exerciseConfig, lastWorkoutEx, onSave,
         </div>
         {sets.map((s, i) => {
           const repsOk = s.reps >= min; const hasReps = s.reps > 0;
+          const wInc = exerciseConfig.increment > 0 ? exerciseConfig.increment : 2.5;
+          const stepBtn = (onClick) => (label) => (
+            <button onClick={onClick} style={{ flex:1, width:26, background:'#2a2a2a', border:'none', borderRadius:5, color:'#999', fontSize:12, display:'flex', alignItems:'center', justifyContent:'center', lineHeight:1 }}>{label}</button>
+          );
           return (
-            <div key={i} style={{ display:'grid', gridTemplateColumns:'36px 1fr 1fr 40px', gap:8, marginBottom:10, alignItems:'center' }}>
-              <div style={{ width:32, height:32, borderRadius:'50%', background:hasReps?(repsOk?'#0f2a0f':'#2a0f0f'):'#2a2a2a', border:`2px solid ${hasReps?(repsOk?'#22c55e':'#ef4444'):'#333'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:13, fontWeight:700, color:hasReps?(repsOk?'#22c55e':'#ef4444'):'#666' }}>{i+1}</div>
-              <div style={{ position:'relative' }}>
-                <input type="number" inputMode="decimal" value={s.weight||''} placeholder="0" onChange={e => updateSet(i,'weight',e.target.value)}
-                  style={{ width:'100%', height:52, background:'#222', border:'1px solid #333', borderRadius:12, color:'#f0f0f0', fontSize:22, fontWeight:700, textAlign:'center' }}/>
-                <div style={{ position:'absolute', top:'50%', right:10, transform:'translateY(-50%)', fontSize:10, color:'#555' }}>kg</div>
+            <div key={i} style={{ display:'grid', gridTemplateColumns:'32px 1fr 1fr 36px', gap:6, marginBottom:10, alignItems:'center' }}>
+              <div style={{ width:30, height:30, borderRadius:'50%', background:hasReps?(repsOk?'#0f2a0f':'#2a0f0f'):'#2a2a2a', border:`2px solid ${hasReps?(repsOk?'#22c55e':'#ef4444'):'#333'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:12, fontWeight:700, color:hasReps?(repsOk?'#22c55e':'#ef4444'):'#666' }}>{i+1}</div>
+
+              {/* Weight input + steppers */}
+              <div style={{ display:'flex', gap:3, height:52 }}>
+                <input type="number" inputMode="decimal" value={s.weight||''} placeholder="0"
+                  onChange={e => updateSet(i,'weight',e.target.value)}
+                  style={{ flex:1, minWidth:0, background:'#222', border:'1px solid #333', borderRadius:10, color:'#f0f0f0', fontSize:20, fontWeight:700, textAlign:'center' }}/>
+                <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                  {stepBtn(() => updateSet(i,'weight', Math.round((+(s.weight||0) + wInc)*10)/10))('▲')}
+                  {stepBtn(() => updateSet(i,'weight', Math.max(0, Math.round((+(s.weight||0) - wInc)*10)/10)))('▼')}
+                </div>
               </div>
-              <div style={{ position:'relative' }}>
-                <input type="number" inputMode="numeric" value={s.reps||''} placeholder="0" onChange={e => updateSet(i,'reps',e.target.value)}
-                  style={{ width:'100%', height:52, background:'#222', border:`1px solid ${hasReps?(repsOk?'#22c55e44':'#ef444444'):'#333'}`, borderRadius:12, color:'#f0f0f0', fontSize:22, fontWeight:700, textAlign:'center' }}/>
-                <div style={{ position:'absolute', top:'50%', right:10, transform:'translateY(-50%)', fontSize:10, color:'#555' }}>reps</div>
+
+              {/* Reps input + steppers */}
+              <div style={{ display:'flex', gap:3, height:52 }}>
+                <input type="number" inputMode="numeric" value={s.reps||''} placeholder="0"
+                  onChange={e => updateSet(i,'reps',e.target.value)}
+                  style={{ flex:1, minWidth:0, background:'#222', border:`1px solid ${hasReps?(repsOk?'#22c55e44':'#ef444444'):'#333'}`, borderRadius:10, color:'#f0f0f0', fontSize:20, fontWeight:700, textAlign:'center' }}/>
+                <div style={{ display:'flex', flexDirection:'column', gap:3 }}>
+                  {stepBtn(() => updateSet(i,'reps', +(s.reps||0) + 1))('▲')}
+                  {stepBtn(() => updateSet(i,'reps', Math.max(0, +(s.reps||0) - 1)))('▼')}
+                </div>
               </div>
-              <button onClick={() => setShowTimer(true)} style={{ height:52, width:40, background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:12, color:'#888', fontSize:16 }}>⏱</button>
+
+              <button onClick={() => setShowTimer(true)} style={{ height:52, width:36, background:'#1a1a1a', border:'1px solid #2a2a2a', borderRadius:10, color:'#888', fontSize:14 }}>⏱</button>
             </div>
           );
         })}
@@ -736,8 +776,8 @@ function ExerciseDetailScreen({ exercise, exerciseConfig, lastWorkoutEx, onSave,
         </div>
       </div>
 
-      <div style={{ padding:'0 16px 32px' }}>
-        <button onClick={handleSave} style={{ width:'100%', padding:16, borderRadius:14, fontSize:16, fontWeight:700, background:result?rl.color:'#6c63ff', color:'#fff' }}>
+      <div style={{ flexShrink:0, padding:'12px 16px 32px', borderTop:'1px solid #1e1e1e', background:'#0f0f0f' }}>
+        <button onClick={handleSave} style={{ width:'100%', padding:15, borderRadius:14, fontSize:16, fontWeight:700, background:result?rl.color:'#6c63ff', color:'#fff' }}>
           {result?'저장하기 '+(result==='success'?'🔥':result==='partial'?'👍':'⚠️'):'저장하기'}
         </button>
       </div>
@@ -959,7 +999,7 @@ function CompleteScreen({ session, onDone }) {
       <div style={{ color:'#888', marginBottom:24 }}>{SPLITS[session.workoutType]?.emoji} {session.workoutType}</div>
 
       <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr 1fr', gap:12, width:'100%', marginBottom:24 }}>
-        {isCardio ? [
+        {(isCardio ? [
           { label:'완료', value:`${completed}/${total}`, color:'#ef4444' },
           { label:'시간', value:`${totalDur}분`, color:'#f59e0b' },
           { label:'거리', value:totalDist>0?`${totalDist}km`:'—', color:'#22c55e' },
@@ -967,7 +1007,7 @@ function CompleteScreen({ session, onDone }) {
           { label:'완료', value:`${completed}/${total}`, color:'#6c63ff' },
           { label:'성공', value:successes, color:'#22c55e' },
           { label:'볼륨', value:`${(totalVol/1000).toFixed(1)}t`, color:'#f59e0b' },
-        ].map(item => (
+        ]).map(item => (
           <div key={item.label} style={{ background:'#1a1a1a', borderRadius:12, padding:'14px 8px', border:'1px solid #2a2a2a' }}>
             <div style={{ fontSize:20, fontWeight:800, color:item.color }}>{item.value}</div>
             <div style={{ fontSize:11, color:'#888', marginTop:2 }}>{item.label}</div>
